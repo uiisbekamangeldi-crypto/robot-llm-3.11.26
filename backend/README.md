@@ -1,42 +1,40 @@
-# Unitree G1 EDU+ — университетский AI-ассистент
+# Unitree G1 EDU+ — локальный университетский AI-ассистент
 
-Статус: **P1, запускаемый каркас FastAPI**. Исходные PDF находятся в корне репозитория. База данных, RAG, модели и интеграция с роботом пока не подключены.
+Рабочий backend находится в стадии интеграции. FastAPI принимает текст и PCM WAV, PostgreSQL хранит документы и диалоги, pgvector ищет фрагменты, Redis обслуживает очередь и лимит запросов, MinIO хранит оригиналы. Локальные модели: multilingual FastEmbed, Qwen2.5 через llama.cpp, Faster Whisper и Piper. Роботный SDK пока не подключён.
 
-## Локальный запуск
+## Быстрый запуск на AI Host
 
-Требуется Python 3.11 или новее. Из каталога `backend/`:
+Требуется Python 3.12, Docker и локальные файлы моделей. Из `backend/`:
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
+cp .env.example .env
+# Замените все change-me и задайте длинный DIALOG_API_KEY.
+docker compose up -d postgres redis minio
+.venv/bin/alembic upgrade head
+.venv/bin/python -m scripts.init_storage
+.venv/bin/python -m scripts.sync_knowledge
+.venv/bin/python -m scripts.embed_knowledge
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Swagger UI: `http://127.0.0.1:8000/docs`; OpenAPI JSON: `/openapi.json`; ReDoc: `/redoc`. Проверки: `.venv/bin/pytest -q`, `.venv/bin/ruff check .`, `.venv/bin/mypy app`.
+Для LLM нужен локальный `llama-server` с GGUF-файлом Qwen2.5-1.5B-Instruct Q4_K_M. В `.env` задайте `LLM_URL` и `LLM_MODEL`. Модели FastEmbed, Faster Whisper и Piper хранятся в `.models/` и не включаются в Git. Готовые Docker-сервисы `api`, `worker`, `llm` описаны в `compose.yaml`, однако полный стек в контейнерах ещё проверяется; пока надёжнее запускать Python API на AI Host, а контейнеры использовать для инфраструктуры.
 
-`GET /api/v1/health/live` возвращает 200, когда API работает. `GET /api/v1/health/ready` возвращает 503, пока индекс и LLM не настроены. `POST /api/v1/dialog/text` уже имеет схему запроса и ответа, но возвращает 503 `KNOWLEDGE_NOT_READY` до следующих фаз — факты об университете без источника не генерируются.
+Swagger: `http://127.0.0.1:8000/docs`. API: `POST /api/v1/dialog/text` с JSON `{ "question": "...", "language": "ru" }`; `POST /api/v1/dialog/audio?language=ru` с телом PCM WAV и заголовком `Content-Type: audio/wav`. Аудиоответ возвращается в JSON как `audio_wav_base64`. Если настроен `DIALOG_API_KEY`, передавайте `X-API-Key`.
 
-## Цель
+Документы из GitHub загружаются со статусом `pending_review` и уровнем `internal`. Публичные ответы по ним намеренно закрыты до проверки права публикации и актуальности. Без одобренного источника API возвращает честный ответ об отсутствии подтверждения. `GET /api/v1/health/ready` будет 503, пока нет одобренных публичных фрагментов и доступной LLM.
 
-Локальная система отвечает на текстовые и голосовые вопросы на казахском, русском и английском языках с подтверждением фактов фрагментами разрешённых документов. Голосовой режим использует Unitree G1 EDU+ после проверки его фактических интерфейсов. Ответ без релевантного источника сообщает об отсутствии подтверждения.
+## Проверка
 
-## Архитектурные документы
+```bash
+.venv/bin/ruff check .
+.venv/bin/mypy app
+.venv/bin/pytest -q
+```
 
-- [Архитектура и план фаз](docs/architecture/architecture.md) — компоненты, контракты, данные, API, робот, развёртывание и риски.
-- [Политика источников](docs/architecture/source-policy.md) — доступность документов, версии, приоритеты и публикация ответов.
-- [Критерии приёмки](docs/architecture/acceptance.md) — проверки фаз и контрольный набор вопросов.
-- [Решения](docs/architecture/decisions/README.md) — выбор хранилища, очереди и размещения моделей.
+Mock-агент без Unitree SDK: `python -m robot_agent.agent --host http://127.0.0.1:8000 --robot-id g1-test --input-wav question.wav --output-wav answer.wav --language ru`. Ключ передаётся через переменную окружения `ROBOT_LLM_API_KEY`.
 
-## Подтверждённое и открытое
+## Состояние и ограничения
 
-**VERIFIED:** в репозитории есть 25 тематических PDF и `Каталог знаний.pdf`; Python на доступной машине — 3.12.2, macOS ARM64. `5.pdf` помечен в самом документе как утративший силу.
-
-**DOCUMENTED:** в требованиях заданы FastAPI, PostgreSQL с pgvector, Redis, MinIO, Faster Whisper, локальная LLM и Piper. Сторонний проект `unitree_converse` описывает аудиотракт своей конфигурации G1.
-
-**PROPOSED:** дальнейший backend строится как модульный монолит с отдельным worker и портами для AI и робота.
-
-**BLOCKED:** фактическая конфигурация G1 EDU+, ресурсы Jetson, права на использование внутренних документов в публичных ответах и работа Docker daemon в этой среде не подтверждены.
-
-## Порядок работы
-
-P0 зафиксировал решения и вопросы; P1 создал API-каркас и проверяемые контракты. Следующая фаза P2 добавляет инфраструктуру данных. Изменение production-конфигурации робота, развёртывание и разрушительные миграции требуют отдельного решения. Не объявлять планируемые функции реализованными.
+Подробный checkpoint: [docs/implementation-checkpoint.md](docs/implementation-checkpoint.md). Актуальная политика документов: [docs/architecture/source-policy.md](docs/architecture/source-policy.md). Нельзя считать качество KK/RU/EN речи подтверждённым на живом микрофоне по тестам с синтетическими WAV. Подключение Unitree SDK2/AudioHub ждёт подтверждённого интерфейса и доступа к роботу. Код и модели работают локально, облачные AI API не используются.

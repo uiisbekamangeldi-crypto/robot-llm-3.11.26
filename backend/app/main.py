@@ -12,6 +12,7 @@ from starlette.responses import Response
 
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorBody, ErrorResponse, app_error_handler
+from app.infrastructure.resources import Infrastructure
 from app.modules.dialog.api import router as dialog_router
 from app.modules.health.api import router as health_router
 
@@ -27,14 +28,21 @@ class JsonFormatter(logging.Formatter):
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=settings.log_level, handlers=[handler])
+    if settings.infrastructure_configured:
+        app.state.infrastructure = Infrastructure.from_settings(settings)
     logger.info("service_started")
-    yield
-    logger.info("service_stopped")
+    try:
+        yield
+    finally:
+        infrastructure: Infrastructure | None = getattr(app.state, "infrastructure", None)
+        if infrastructure is not None:
+            await infrastructure.close()
+        logger.info("service_stopped")
 
 
 def create_app() -> FastAPI:
@@ -43,8 +51,7 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version="0.1.0",
         description=(
-            "University AI assistant API. "
-            "Knowledge and robot adapters are not configured yet."
+            "University AI assistant API. Knowledge and robot adapters are not configured yet."
         ),
         lifespan=lifespan,
     )

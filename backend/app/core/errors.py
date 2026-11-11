@@ -17,15 +17,20 @@ class ErrorResponse(BaseModel):
 
 
 class AppError(Exception):
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self, status_code: int, code: str, message: str, details: dict[str, Any] | None = None
+    ) -> None:
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.details = details or {}
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     request_id = str(request.state.request_id)
     body = ErrorResponse(
-        error=ErrorBody(code=exc.code, message=exc.message, request_id=request_id)
+        error=ErrorBody(
+            code=exc.code, message=exc.message, request_id=request_id, details=exc.details
+        )
     )
     return JSONResponse(status_code=exc.status_code, content=body.model_dump())

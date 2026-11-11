@@ -20,7 +20,7 @@ def test_text_question_never_invents_unindexed_university_facts() -> None:
             "/api/v1/dialog/text", json={"question": "Кто ректор?", "language": "ru"}
         )
     assert response.status_code == 503
-    assert response.json()["error"]["code"] == "KNOWLEDGE_NOT_READY"
+    assert response.json()["error"]["code"] in {"KNOWLEDGE_NOT_READY", "INFERENCE_UNAVAILABLE"}
 
 
 def test_invalid_language_uses_error_contract() -> None:
