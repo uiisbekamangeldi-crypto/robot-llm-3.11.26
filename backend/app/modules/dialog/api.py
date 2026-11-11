@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from app.core.errors import AppError, ErrorResponse
 from app.modules.audio.stt import LocalSpeechRecognizer
 from app.modules.audio.tts import LocalSpeechSynthesizer
+from app.modules.dialog.language import detect_text_language
 from app.modules.dialog.store import DialogStore
 from app.modules.llm.grounded import grounded_answer
 from app.modules.llm.local_client import LocalLLM
@@ -96,7 +97,7 @@ async def ask_text(question: TextQuestion, request: Request) -> TextAnswer:
     if infrastructure is None:
         raise AppError(503, "KNOWLEDGE_NOT_READY", "Knowledge index is not configured")
     settings = get_settings()
-    language = question.language or "ru"
+    language = question.language or detect_text_language(question.question)
     store = DialogStore(infrastructure.engine)
     if question.idempotency_key:
         try:
@@ -180,7 +181,10 @@ async def ask_text(question: TextQuestion, request: Request) -> TextAnswer:
 
 @router.post("/audio", response_model=AudioAnswer, summary="Задать вопрос в формате PCM WAV")
 async def ask_audio(
-    request: Request, language: Literal["kk", "ru", "en"] | None = None
+    request: Request,
+    language: Literal["kk", "ru", "en"] | None = None,
+    session_id: UUID | None = None,
+    idempotency_key: str | None = None,
 ) -> AudioAnswer:
     if request.headers.get("content-type", "").split(";")[0] != "audio/wav":
         raise AppError(415, "UNSUPPORTED_AUDIO", "Expected audio/wav")
@@ -214,7 +218,13 @@ async def ask_audio(
     if response_language is None:
         raise AppError(422, "UNSUPPORTED_LANGUAGE", "Speech language is unsupported")
     answer = await ask_text(
-        TextQuestion(question=transcript.text, language=response_language), request
+        TextQuestion(
+            question=transcript.text,
+            language=response_language,
+            session_id=session_id,
+            idempotency_key=idempotency_key,
+        ),
+        request,
     )
     synthesizer = cast(
         LocalSpeechSynthesizer | None, getattr(request.app.state, "synthesizer", None)

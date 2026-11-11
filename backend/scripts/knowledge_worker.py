@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable
+from typing import cast
 
 from sqlalchemy import text
 
@@ -19,18 +21,29 @@ async def main() -> None:
     try:
         # Only one worker is configured. Recover a job interrupted by process death.
         async with resources.engine.begin() as conn:
+            interrupted = await conn.execute(
+                text("SELECT source_commit FROM ingestion_jobs WHERE status='running'")
+            )
+            interrupted_commits = [row.source_commit for row in interrupted]
             await conn.execute(
                 text("UPDATE ingestion_jobs SET status='queued' WHERE status='running'")
             )
-        if await resources.redis.llen("knowledge:sync") == 0:
+        for commit in interrupted_commits:
+            await cast(Awaitable[int], resources.redis.lpush("knowledge:sync", commit))
+        if await cast(Awaitable[int], resources.redis.llen("knowledge:sync")) == 0:
             async with resources.engine.connect() as conn:
                 rows = await conn.execute(
                     text("SELECT source_commit FROM ingestion_jobs WHERE status='queued'")
                 )
                 for row in rows:
-                    await resources.redis.lpush("knowledge:sync", row.source_commit)
+                    await cast(
+                        Awaitable[int], resources.redis.lpush("knowledge:sync", row.source_commit)
+                    )
         while True:
-            item = await resources.redis.brpop("knowledge:sync", timeout=5)
+            item = await cast(
+                Awaitable[tuple[bytes, bytes] | None],
+                resources.redis.brpop(["knowledge:sync"], timeout=5),
+            )
             if item is None:
                 continue
             commit = item[1].decode()

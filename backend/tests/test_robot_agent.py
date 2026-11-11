@@ -34,3 +34,20 @@ async def test_mock_agent_rejects_non_wav() -> None:
     agent = RobotAudioAgent("http://127.0.0.1:8000", "g1-test")
     with pytest.raises(ValueError, match="Expected WAV"):
         await agent.ask(b"bad")
+
+
+@pytest.mark.asyncio
+async def test_mock_agent_surfaces_host_failure() -> None:
+    keys: list[str] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        keys.append(_request.url.params["idempotency_key"])
+        return httpx.Response(503, json={"error": "offline"})
+
+    agent = RobotAudioAgent(
+        "http://127.0.0.1:8000", "g1-test", transport=httpx.MockTransport(handler)
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await agent.ask(b"RIFFinput", "ru")
+    assert len(keys) == 3
+    assert len(set(keys)) == 1

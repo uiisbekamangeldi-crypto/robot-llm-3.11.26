@@ -43,6 +43,18 @@ async def test_valid_citation_resolves_to_supplied_chunk() -> None:
 
 
 @pytest.mark.asyncio
+async def test_exact_quote_without_citation_gets_verified_citation() -> None:
+    source = chunk()
+
+    async def generated(_system: str, _user: str) -> str:
+        return "Ректор — пример."
+
+    result = await grounded_answer("Кто ректор?", "ru", [source], generated)
+    assert result.grounded
+    assert result.text == "Ректор — пример. [S1]"
+
+
+@pytest.mark.asyncio
 async def test_citation_without_matching_quote_is_rejected() -> None:
     async def generated(_system: str, _user: str) -> str:
         return "Другой человек занимает должность. [S1]"

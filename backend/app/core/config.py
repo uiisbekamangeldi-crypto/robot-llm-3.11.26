@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     llm_url: str = "http://127.0.0.1:8080"
     llm_model: str = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
     llm_timeout_seconds: float = 45.0
-    stt_model: str = "small"
+    stt_model: str = ".models/whisper/small"
     stt_timeout_seconds: float = 45.0
     tts_voice_dir: str = ".models/voices"
     tts_timeout_seconds: float = 30.0

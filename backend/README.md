@@ -9,6 +9,7 @@
 ```bash
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m scripts.download_models all
 cp .env.example .env
 # Замените все change-me и задайте длинный DIALOG_API_KEY.
 docker compose up -d postgres redis minio
@@ -19,7 +20,7 @@ docker compose up -d postgres redis minio
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Для LLM нужен локальный `llama-server` с GGUF-файлом Qwen2.5-1.5B-Instruct Q4_K_M. В `.env` задайте `LLM_URL` и `LLM_MODEL`. Модели FastEmbed, Faster Whisper и Piper хранятся в `.models/` и не включаются в Git. Готовые Docker-сервисы `api`, `worker`, `llm` описаны в `compose.yaml`, однако полный стек в контейнерах ещё проверяется; пока надёжнее запускать Python API на AI Host, а контейнеры использовать для инфраструктуры.
+Для LLM нужен локальный `llama-server` с GGUF-файлом Qwen2.5-1.5B-Instruct Q4_K_M. В `.env` задайте `LLM_URL` и `LLM_MODEL`. Модели FastEmbed, Faster Whisper и Piper хранятся в `.models/` и не включаются в Git. `download_models` загружает их явно; во время обработки запросов STT использует локальный путь без сетевой загрузки. Готовые Docker-сервисы `api`, `worker`, `llm` описаны в `compose.yaml`; полный стек прошёл локальный smoke test. Перед запуском на другом AI Host нужно скачать модели и настроить секреты.
 
 Swagger: `http://127.0.0.1:8000/docs`. API: `POST /api/v1/dialog/text` с JSON `{ "question": "...", "language": "ru" }`; `POST /api/v1/dialog/audio?language=ru` с телом PCM WAV и заголовком `Content-Type: audio/wav`. Аудиоответ возвращается в JSON как `audio_wav_base64`. Если настроен `DIALOG_API_KEY`, передавайте `X-API-Key`.
 

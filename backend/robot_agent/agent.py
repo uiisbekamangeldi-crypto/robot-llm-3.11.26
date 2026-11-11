@@ -6,6 +6,7 @@ import base64
 import os
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import httpx
 
@@ -36,16 +37,29 @@ class RobotAudioAgent:
         headers = {"Content-Type": "audio/wav", "X-Robot-ID": self.robot_id}
         if self.api_key:
             headers["X-API-Key"] = self.api_key
-        params = {"language": language} if language else None
+        params = {"idempotency_key": str(uuid4())}
+        if language:
+            params["language"] = language
         async with httpx.AsyncClient(
             timeout=self.timeout_seconds, transport=self.transport
         ) as client:
-            response = await client.post(
-                self.host_url + "/api/v1/dialog/audio",
-                content=wav,
-                headers=headers,
-                params=params,
-            )
+            for attempt in range(3):
+                try:
+                    response = await client.post(
+                        self.host_url + "/api/v1/dialog/audio",
+                        content=wav,
+                        headers=headers,
+                        params=params,
+                    )
+                except httpx.TransportError:
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(0.2 * (2**attempt))
+                    continue
+                if response.status_code in (502, 503, 504) and attempt < 2:
+                    await asyncio.sleep(0.2 * (2**attempt))
+                    continue
+                break
             response.raise_for_status()
             payload = response.json()
         return payload["answer"]["answer"], base64.b64decode(
@@ -63,9 +77,7 @@ async def main() -> None:
     args = parser.parse_args()
     answer, audio = await RobotAudioAgent(
         args.host, args.robot_id, os.getenv("ROBOT_LLM_API_KEY")
-    ).ask(
-        args.input_wav.read_bytes(), args.language
-    )
+    ).ask(args.input_wav.read_bytes(), args.language)
     args.output_wav.write_bytes(audio)
     print(answer)
 

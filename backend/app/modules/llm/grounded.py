@@ -48,10 +48,19 @@ async def grounded_answer(
     user = f"Question: {question}\n\nSource excerpts:\n{assemble_context(chunks)}"
     answer = await generate(system, user)
     cited_numbers = {int(number) for number in re.findall(r"\[S([1-9])\]", answer)}
-    if not cited_numbers or any(number > min(len(chunks), 3) for number in cited_numbers):
+    if any(number > min(len(chunks), 3) for number in cited_numbers):
         return GroundedAnswer(FALLBACKS[language], language, False, ())
-    sources = tuple(chunks[number - 1] for number in sorted(cited_numbers))
     claim = re.sub(r"\[S[1-9]\]", "", answer).strip()
+    if not cited_numbers:
+        matching = [
+            index
+            for index, chunk in enumerate(chunks[:3], start=1)
+            if claim and claim in chunk.text[:600]
+        ]
+        if matching:
+            cited_numbers = {matching[0]}
+            answer = f"{claim} [S{matching[0]}]"
+    sources = tuple(chunks[number - 1] for number in sorted(cited_numbers))
     if not claim or not any(claim in source.text[:600] for source in sources):
         return GroundedAnswer(FALLBACKS[language], language, False, ())
     return GroundedAnswer(answer, language, True, sources)
